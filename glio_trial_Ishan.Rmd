@@ -1,0 +1,171 @@
+---
+title: "Gliobastoma"
+author: "Ishan Srivastava"
+date: "5/18/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Seurat)
+library(patchwork)
+library(dplyr)
+```
+
+```{r}
+main <- read.table("./GSE84465_GBM_All_data.csv", sep=" ", header=TRUE)
+object_seurat <- CreateSeuratObject(counts = main, project = "GSAE4465")
+object_seurat
+slotNames(object_seurat)
+```
+```{r}
+object_seurat[["percent.mt"]] <- PercentageFeatureSet(object_seurat, pattern = "^MT-")
+```
+
+```{r}
+# Visualize QC metrics as a violin plot
+VlnPlot(object = object_seurat, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", ncol = 3))
+```
+
+```{r}
+# Feature scatter plot
+plot1 <- FeatureScatter(object_seurat, feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(object_seurat, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+plot1 + plot2
+```
+
+```{r}
+object_seurat <- NormalizeData(object_seurat, normalization.method = "LogNormalize", scale.factor = 10000)
+```
+
+```{r}
+# Identification of highly variable features (feature selection)
+object_seurat <- FindVariableFeatures(object_seurat, selection.method = "vst", nfeatures = 2000)
+
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(object_seurat), 10)
+
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(object_seurat)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot1 + plot2
+```
+
+
+```{r}
+all.genes <- rownames(object_seurat)
+object_seurat <- ScaleData(object_seurat, features=all.genes)
+```
+
+```{r}
+# linear dimensional reduction
+object_seurat <- RunPCA(object_seurat, features = VariableFeatures(object = object_seurat))
+```
+
+```{r}
+DimHeatmap(object_seurat, dims = 1:15, cells = 500, balanced = TRUE)
+```
+
+```{r}
+DimPlot(object_seurat, reduction = "pca")
+```
+
+```{r}
+# Dimensionality of the dataset
+object_seurat <- JackStraw(object_seurat, num.replicate = 100)
+object_seurat <- ScoreJackStraw(object_seurat, dims = 1:20)
+JackStrawPlot(object_seurat, dims = 1:15)
+```
+
+```{r}
+#Cluster cells
+object_seurat <- FindNeighbors(object_seurat, dims= 1:10)
+object_seurat <- FindClusters(object_seurat, resolution = 0.5)
+head(Idents(object_seurat), 10)
+```
+
+```{r}
+# Run non-linear dimensional reduction (UMAP/tSNE)
+object_seurat <- RunUMAP(object_seurat, dims = 1:10)
+DimPlot(object_seurat, reduction = "umap")
+```
+
+```{r}
+# find all markers distinguishing cluster 0 from cluster 2
+markers_for_cluster0 <- FindMarkers(object_seurat, ident.1 = 0, ident.2 = 2, min.pct = 0.25)
+head(markers_for_cluster0, n=5)
+```
+
+```{r}
+# Find differentially expressed features (cluster biomarkers)
+seurat_markers <- FindAllMarkers(object_seurat, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+seurat_markers %>% group_by(cluster) %>% top_n(n=10, wt=avg_log2FC)
+```
+
+```{r}
+top10 <- seurat_markers %>% group_by(cluster) %>% top_n(n=10, wt=avg_log2FC)
+DoHeatmap(object_seurat, features = top10$gene) + NoLegend()
+```
+
+```{r}
+updated_cluster_ids <- c("Myeloid", "Cancer", "Macrophages", "Unknown", "Myeloid", "Cancer", "Microglia", "Microglia", "Cancer", "Unknown", "Unknown", "Unknown", "Oligodendrocyte", "Unknown", "Astrocyte", "Unknown", "Cancer", "Neurons")
+names(updated_cluster_ids) <- levels(object_seurat)
+object_seurat <- RenameIdents(object_seurat, updated_cluster_ids)
+DimPlot(object_seurat, reduction = "umap", label = TRUE, pt.size = 0.5) + NoLegend()
+```
+
+```{r}
+# Find differentially expressed features between Myeloid and FCGR3A+ Macrophages
+myeloid_markers <- FindMarkers(object_seurat, ident.1 = "Myeloid", ident.2 = "Macrophages")
+# view results
+head(myeloid_markers, 10)
+```
+```{r}
+### Differential expression testing
+head(FindMarkers(object_seurat, ident.1 = "Myeloid", ident.2 = "Macrophages", test.use = "DESeq2", max.cells.per.ident = 50),10)
+```
+
+```{r}
+my_and_mac <- c("C3", "VCAN", "RNASE1", "CD74", "VIM", "S100A10", "ANPEP", "LGALS1", "GPNMB", "MARCO")
+DotPlot(object_seurat, features = my_and_mac, idents = c("Myeloid", "Macrophages")) + RotatedAxis()
+```
+
+
+```{r}
+cytokines <- c("PTPRC", "IL10", "TGFB1", "IL1R1", "IL1RN", "VEGFA", "IL4", "IL13", "IL2", "IL15", "CTLA4")
+DotPlot(object_seurat, features = cytokines) + RotatedAxis()
+```
+
+```{r}
+### Heatmap for differentially expressed genes among all genes
+DoHeatmap(subset(object_seurat, downsample =100), features = my_and_mac, size = 4)
+```
+
+```{r}
+### Heatmap for cytokines genes
+DoHeatmap(subset(object_seurat, downsample = 100), features = cytokines, size = 3)
+
+```
+
+```{r}
+### Feature plots for cytokine genes
+FeaturePlot(object_seurat, features = cytokines)
+```
+
+```{r}
+### Violin plot for differentially genes among all cell groups
+for (i in 1:10){
+  print(VlnPlot(object_seurat, features = seurat_markers$gene[i]), pt.size=0.1) + NoLegend()
+}
+```
+
+```{r}
+### Dot plot for differentially genes among all cell groups
+for (i in 1:10){
+  print(DotPlot(object_seurat, features = seurat_markers$gene[i])) + RotatedAxis()
+}
+```
+
