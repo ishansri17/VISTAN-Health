@@ -17,7 +17,7 @@ library(dplyr)
 
 ```{r}
 main <- read.table("./GSE84465_GBM_All_data.csv", sep=" ", header=TRUE)
-object_seurat <- CreateSeuratObject(counts = main, project = "GSAE4465")
+object_seurat <- CreateSeuratObject(counts = main, project = "GSE84465")
 object_seurat
 slotNames(object_seurat)
 ```
